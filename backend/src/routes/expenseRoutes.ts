@@ -1,11 +1,10 @@
-import {Router,Request,Response} from 'express';
+import {Router,Response} from 'express';
 import { supabaseClient } from '../config/supabase';
 import { authenticatedRequest, requireAuth } from '../middleware/auth';
-import { SupabaseClient } from '@supabase/supabase-js';
 
 const expenseRouter = Router();
 
-expenseRouter.get("/",(req:Request,res:Response) =>
+expenseRouter.get("/",(req:authenticatedRequest,res:Response) =>
     { 
         res.status(200).json(
             {
@@ -112,7 +111,7 @@ expenseRouter.get("/dashboard",requireAuth,async (req:authenticatedRequest,res:R
     catch(error:any){
         return res.status(500).json({
             status : "error",
-            message : error||"failed to execute dashboard"
+            message : error.message||"failed to execute dashboard"
         })
     }
 
@@ -121,7 +120,6 @@ expenseRouter.get("/dashboard",requireAuth,async (req:authenticatedRequest,res:R
 )
 
 // Add Expense API
-
 expenseRouter.post('/add-expense',requireAuth,async (req:authenticatedRequest,res:Response)=>{
     try{
         // reading from request
@@ -130,7 +128,7 @@ expenseRouter.post('/add-expense',requireAuth,async (req:authenticatedRequest,re
         const categoryId = req.body.categoryId;
         const today = new Date();
         const month = req.body.month?parseInt(req.body.month as string):today.getMonth()+1;
-        const year = req.body.year?parseInt(req.body.year as string):today.getFullYear; 
+        const year = req.body.year?parseInt(req.body.year as string):today.getFullYear(); 
 
         // Fetching current record
         const {data:currentRecord,error:fetchError} = await supabaseClient
@@ -140,12 +138,12 @@ expenseRouter.post('/add-expense',requireAuth,async (req:authenticatedRequest,re
         .eq("category_id",categoryId)
         .eq("month",month)
         .eq("year",year)
-        .single()
+        .maybeSingle()
 
         if (fetchError) throw fetchError;
 
         // Upserting New Total
-        const newTotal = currentRecord.total + amount;
+        const newTotal = currentRecord?currentRecord.total:0 + amount;
         const {data:upsertedRecord,error:upsertError} = await supabaseClient
         .from("monthly_totals")
         .upsert({
@@ -157,18 +155,18 @@ expenseRouter.post('/add-expense',requireAuth,async (req:authenticatedRequest,re
             },
             {onConflict: 'user_id,category_id,month,year'})
             .select()
-            .single();
+            .maybeSingle();
 
         if (upsertError) throw upsertError;
             
-        return res.status(200).json({
+        return res.status(201).json({
             status : "success",
             message: "Succesfully Updated Data",
             data : {
                 category_id: upsertedRecord.category_id,
                 month: upsertedRecord.month,
                 year: upsertedRecord.year,
-                previous_total: currentRecord.total,
+                previous_total: currentRecord?currentRecord.total:0,
                 new_total: upsertedRecord.total
             }
         });
@@ -176,13 +174,12 @@ expenseRouter.post('/add-expense',requireAuth,async (req:authenticatedRequest,re
     catch (error){
         return res.status(500).json({
             status : "Errored",
-            message : error||"add-expense API error"
+            message : error.message||"add-expense API error"
         })
     }
 })
 
 // Reset Expense API
-
 expenseRouter.patch("/reset-expense",requireAuth, async(req:authenticatedRequest,res:Response) =>{
     try{
         const userId = req.userId;
@@ -190,7 +187,7 @@ expenseRouter.patch("/reset-expense",requireAuth, async(req:authenticatedRequest
         const today = new Date();
         const amount = req.body.amount?parseFloat(req.body.amount as string):0.0;
         const month = req.body.month?parseInt(req.body.month as string):today.getMonth()+1;
-        const year = req.body.year?parseInt(req.body.year as string):today.getFullYear; 
+        const year = req.body.year?parseInt(req.body.year as string):today.getFullYear(); 
 
         const {data:resetRecord,error:resetError} = await supabaseClient
         .from("monthly_totals")
@@ -199,11 +196,11 @@ expenseRouter.patch("/reset-expense",requireAuth, async(req:authenticatedRequest
         .eq("category_id",categoryId)
         .eq("month",month)
         .eq("year",year)
-        .select().single();
+        .select().maybeSingle();
         
         if (resetError) throw resetError;
 
-        return res.status(200).json({
+        return res.status(201).json({
             status:"Success",
             data: {updatedAmount:resetRecord.total}
         })
@@ -211,7 +208,7 @@ expenseRouter.patch("/reset-expense",requireAuth, async(req:authenticatedRequest
     catch (error){
         return res.status(500).json({
             status : "error",
-            message : error||"reset-expense API failure"
+            message : error.message||"reset-expense API failure"
         });
     }
 }
